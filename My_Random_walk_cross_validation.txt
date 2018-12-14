@@ -1,0 +1,478 @@
+##############perform the following commands to load the library and functions ########################
+setwd("E:\\zhouxu\\我的课题包\\work\\重新整理\\CTD\\1888_Random_Walk\\R随机游走及结果")
+#random walk function:
+my_rand_walk<-function(W,p0,r){
+  pt<-p0
+  delta<-1
+  while(delta>1e-10){
+  pt1 = (1-r)*W%*%pt+r*p0;
+  delta = sum(abs(pt1 - pt));
+  pt = pt1}
+  return(pt)
+}
+################################### demonstration of random walk in an example network ##############################
+#1 load the network data from edgelist and use IDs (1,2,...,n) to indicate nodes:
+Net <- read.table("1888_phyper.txt",header = F,sep = "\t",quote="") # the first input file
+Net <- as.matrix(Net)
+nodes <- unique(c(Net[,1],Net[,2]))
+nodes <- cbind(nodes,c(1:length(nodes)))
+rownames(nodes) <- nodes[,1]
+Index1 <- match(Net[,1],nodes[,1])
+Index2 <- match(Net[,2],nodes[,1])
+Net_ID <- cbind(Index1,Index2) # drug names have been converted to IDs
+
+#2 generate a undirected graph with the given list of edges:
+m <- matrix(0,nrow(nodes),nrow(nodes))
+for(i in 1:nrow(Net_ID)) {n1 <- Net_ID[i,1]; n2 <- Net_ID[i,2]; wi <- 1; m[n1,n2] <- m[n2,n1] <- wi}
+dev <- colSums(m)
+#dev[dev==0]<-0.01
+W <- t(t(m) / dev) #  convert to column-normalized adjacency matrix
+
+#3 get the seed vertexes of the random walk:
+allnode<-read.table("New_Dd_4_modify.txt",header = F, sep = "\t",quote="") # the second input file
+allnode<-unique(allnode)
+alld<-names(table(allnode[,2]))[table(allnode[,2])>1]
+result<-c()
+k=0
+for(j in alld)
+{
+  print(k)
+  k=k+1
+  allseed<-allnode[allnode[,2]==j,1]
+  for(out in allseed)
+  {
+    seeds<-allseed[-which(allseed==out)]
+    seeds <- intersect(seeds,rownames(nodes)) # make sure all the seeds are vertexes in the network
+    seedsnames<-seeds
+    seeds <- nodes[seeds,2];seeds <- as.numeric(seeds)
+    
+    
+    #4 start probilities of vertexes:
+    p0=rep(0,nrow(nodes)); p0[seeds] <- 1/length(seeds) #equal probability of seeds.
+    r=0.7; # which means sum(p_final[seeds] ~= 0.7)
+    p_final <- my_rand_walk(W,p0,r)
+    p_final <- cbind(nodes[,1],p_final)
+    p_final <- cbind(j,p_final)
+    label<-rep(0,length(nodes[,1]))
+    label[nodes[,1]==out]<-1
+    p_final <- cbind(p_final,label)
+    p_final <- p_final[-match(seedsnames,p_final[,2]),]
+    # p_final[,3]<-order(order(as.numeric(p_final[,3])))
+	# result<-rbind(result,p_final)
+    rank<-order(order(1-as.numeric(p_final[,3])))#the larger the value, the more reliable the relationship is
+    p_final<-cbind(p_final,rank)
+    result<-rbind(result,p_final)
+  }
+}
+colnames(result)<-c("Disease","Drug","Probability","label","Rank")
+# write.table(result,"LOOCV_result.txt",row.names=F,quote=F,sep="\t")
+#library(pROC)
+#pdf(file=pdfoutputfile[n])
+#ROC<-roc(as.numeric(result[,4]),as.numeric(result[,3]),plot=T)
+#text(0.2,0.2,round(ROC$auc,3))
+#dev.off()
+#print(ROC$auc)
+#######################ROCR
+library(ROCR)
+pred<-prediction(as.numeric(result[,3]),as.numeric(result[,4]))
+perf<-performance(pred,"tpr","fpr")
+aucPerf<-performance(pred,"auc")
+AUCValue<-aucPerf@y.values[[1]]
+AUCValue
+
+
+# each disease's AUC-value
+setwd("E:\\zhouxu\\我的课题包\\work\\重新整理\\CTD\\1888_Random_Walk\\R随机游走及结果")
+library(ROCR)
+allnode<-read.table("New_Dd_4_modify.txt",header = F, sep = "\t",quote="") # the second input file
+allnode<-unique(allnode)
+alld<-names(table(allnode[,2]))[table(allnode[,2])>1]
+AUCresult<-c()
+for(j in alld)
+{
+  Eachresult<-c()
+  allseed<-allnode[allnode[,2]==j,1]
+  for(out in allseed)
+  {
+    seeds<-allseed[-which(allseed==out)]
+    seeds <- intersect(seeds,rownames(nodes)) # make sure all the seeds are vertexes in the network
+    seedsnames<-seeds
+    seeds <- nodes[seeds,2];seeds <- as.numeric(seeds)
+    
+    
+    # start probilities of vertexes:
+    p0=rep(0,nrow(nodes)); p0[seeds] <- 1/length(seeds) #equal probability of seeds.
+    r=0.7; # which means sum(p_final[seeds] ~= 0.7)
+    p_final <- my_rand_walk(W,p0,r)
+    p_final <- cbind(nodes[,1],p_final)
+    p_final <- cbind(j,p_final)
+    label<-rep(0,length(nodes[,1]))
+    label[nodes[,1]==out]<-1
+    p_final <- cbind(p_final,label)
+    p_final <- p_final[-match(seedsnames,p_final[,2]),]#filter out seed nodes
+    p_final[,3]<-order(order(as.numeric(p_final[,3])))#the larger the value, the more reliable the relationship is
+    Eachresult<-rbind(Eachresult,p_final)
+  }
+    pred<-prediction(as.numeric(Eachresult[,3]),as.numeric(Eachresult[,4]))
+    perf<-performance(pred,"tpr","fpr")
+    aucPerf<-performance(pred,"auc")
+    AUCValue<-aucPerf@y.values[[1]]
+    EachAUC<-c(Eachresult[1,1],AUCValue)
+    AUCresult<-rbind(AUCresult,EachAUC)
+}
+
+
+##### used ROCR package
+####  each disease's all AUC-values
+setwd("E:\\zhouxu\\我的课题包\\work\\重新整理\\CTD\\1888_Random_Walk\\R随机游走及结果")
+library(ROCR)
+library(stringr)
+allnode<-read.table("New_Dd_4_modify.txt",header = F, sep = "\t",quote="") # the second input file
+allnode<-unique(allnode)
+alld<-names(table(allnode[,2]))[table(allnode[,2])>1]
+AUCresult<-c()
+for(j in alld)
+{
+  Eachresult<-c()
+  temp<-c()
+  allseed<-allnode[allnode[,2]==j,1]
+  k=0
+  for(out in allseed)
+  {
+    k=k+1
+    seeds<-allseed[-which(allseed==out)]
+    seeds <- intersect(seeds,rownames(nodes)) # make sure all the seeds are vertexes in the network
+    seedsnames<-seeds
+    seeds <- nodes[seeds,2];seeds <- as.numeric(seeds)
+    
+    
+    #6 start probilities of vertexes:
+    p0=rep(0,nrow(nodes)); p0[seeds] <- 1/length(seeds) #equal probability of seeds.
+    r=0.7; # which means sum(p_final[seeds] ~= 0.7)
+    p_final <- my_rand_walk(W,p0,r)
+    p_final <- cbind(nodes[,1],p_final)
+    p_final <- cbind(j,p_final)
+    label<-rep(0,length(nodes[,1]))
+    label[nodes[,1]==out]<-1
+    p_final <- cbind(p_final,label)
+    p_final <- p_final[-match(seedsnames,p_final[,2]),]#filter out seed nodes
+    p_final[,3]<-order(order(as.numeric(p_final[,3])))
+    pred<-prediction(as.numeric(p_final[,3]),as.numeric(p_final[,4]))
+    perf<-performance(pred,"tpr","fpr")
+    aucPerf<-performance(pred,"auc")
+    Single_AUC<-aucPerf@y.values[[1]]
+    pdf(paste(j,out,k,"roc.pdf",sep="_"))
+    plot(perf,colorize=TRUE)
+    dev.off()
+    temp<-c(temp,Single_AUC)
+    temp1<-str_c(temp,collapse=";")
+    Eachresult<-rbind(Eachresult,p_final)
+  }
+    temp2<-str_c(Eachresult[as.numeric(Eachresult[,4])==1,3],collapse=";")
+    pred<-prediction(as.numeric(Eachresult[,3]),as.numeric(Eachresult[,4]))
+    perf<-performance(pred,"tpr","fpr")
+    pdf(paste(j,"roc.pdf",sep="_"))
+    plot(perf,colorize=TRUE)
+    dev.off()
+    aucPerf<-performance(pred,"auc")
+    AUCValue<-aucPerf@y.values[[1]]
+    EachAUC<-c(Eachresult[1,1],AUCValue,length(allseed),mean(temp),temp1,temp2)
+    AUCresult<-rbind(AUCresult,EachAUC)
+}
+colnames(AUCresult)<-c("Disease","together_AUC","num_seed","mean_AUC","scan_AUC","order_P")
+# png("1.png",width=600,height=600)
+# plot(perf,colorize=TRUE)
+# dev.off()
+# write.table(AUCresult,"AUCresult_606.txt",sep="\t",row.names=F,quote=F)
+
+
+
+#################
+##compute MPR 
+setwd("E:\\zhouxu\\我的课题包\\work\\重新整理\\CTD\\1888_Random_Walk\\R随机游走及结果")
+data<-read.table("LOOCV_result.txt",sep="\t",header=T,quote="")
+length(which(data[,4]==1))#3327
+Di<-unique(data[,1])
+MPR_result<-c()
+for(i in Di)
+{
+	# i="Abdominal Neoplasms"
+	part<-data[data[,1]==i,]
+	num_test<-length(which(part[,4]==1))
+	num_pre<-nrow(part)/num_test
+	test_rank<-part[part[,4]==1,5]
+	MPR<-mean(test_rank/num_pre)
+	temp<-c(i,MPR)
+	MPR_result<-rbind(MPR_result,temp)
+}
+write.table(MPR_result,"MPR_result.txt",sep="\t",col.names=c("Disease","MPR"),row.names=F,quote=F)
+mean(as.numeric(MPR_result[,2]))#0.39
+# hist(as.numeric(MPR_result[,2]))
+
+
+########################
+## AUROC, used ROCR package.
+library(ROCR)
+pred <- prediction(175-data[,5], data[,4])
+perf <- performance(pred,"tpr","fpr")
+aucPerf<-performance(pred,"auc")
+auc3<-aucPerf@y.values[[1]]# 0.627
+plot(perf,colorize=TRUE,lwd=5,xlab="FPR",ylab="TPR", main=paste("AUC=",auc*100,"%"))
+grid(5, 5, lwd = 1)
+lines(par()$usr[1:2], par()$usr[3:4], lty=2, lwd=2, col="grey")
+
+## area under the curve
+# Calculate TPR and FPR corresponding to each threshold
+true_Y = data[,4]
+probs = data[,5]
+
+getROC_AUC = function(probs, true_Y){
+    probsSort = order(probs)
+
+    roc_y = true_Y[probsSort];
+    stack_y = cumsum(roc_y == 1)/sum(roc_y == 1)#TPR
+    stack_x = cumsum(roc_y == 0)/sum(roc_y == 0)#FPR
+	
+    auc = sum((stack_x[2:length(roc_y)]-stack_x[1:(length(roc_y)-1)])*(stack_y[2:length(roc_y)]+stack_y[1:(length(roc_y)-1)])/2)
+    return(list(stack_x=stack_x, stack_y=stack_y, auc=auc))
+}
+
+aList = getROC_AUC(probs, true_Y) 
+
+stack_x = unlist(aList$stack_x)
+stack_y = unlist(aList$stack_y)
+auc = unlist(aList$auc)
+
+plot(stack_x, stack_y, type = "l", col = "blue", xlab = "False Positive Rate", ylab = "True Positive Rate", main = "ROC")
+axis(1, seq(0.0,1.0,0.1))
+axis(2, seq(0.0,1.0,0.1))
+abline(h=seq(0.0,1.0,0.1), v=seq(0.0,1.0,0.1), col="gray", lty=3)
+legend(0.7, 0.3, sprintf("%3.3f",auc), lty=c(1,1), lwd=c(2.5,2.5), col="blue", title = "AUC")
+
+######################
+##Draw PR curve and calculate AUPR
+true_Y = data[,4]
+probs = data[,5]
+
+getPR_AUC = function(probs, true_Y){
+    probsSort = order(probs) 
+
+    roc_y = true_Y[probsSort];
+    stack_x = cumsum(roc_y == 1)/sum(roc_y == 1)#recall/TPR 
+	stack_y = cumsum(roc_y == 1)/1:length(roc_y)#precision	
+
+    aupr = sum((stack_x[2:length(roc_y)]-stack_x[1:(length(roc_y)-1)])*(stack_y[2:length(roc_y)]+stack_y[1:(length(roc_y)-1)])/2)
+    return(list(stack_x=stack_x, stack_y=stack_y, aupr=aupr))
+}
+
+aList = getPR_AUC(probs, true_Y) 
+
+stack_x = unlist(aList$stack_x)
+stack_y = unlist(aList$stack_y)
+aupr = unlist(aList$aupr)
+
+plot(stack_x, stack_y, type = "l", col = "blue", xlab = "True Positive Rate/Recall", ylab = "Precision", main = "PR")
+axis(1, seq(0.0,1.0,0.1))
+axis(2, seq(0.0,1.0,0.1))
+abline(h=seq(0.0,1.0,0.1), v=seq(0,1.0,0.1), col="gray", lty=3)
+legend(0.7, 0.003, sprintf("%3.3f",aupr), lty=c(1,1), lwd=c(2.5,2.5), col="blue", title = "AUPR")
+
+
+
+#######################################
+######Calculating AUPR for each disease
+setwd("E:\\zhouxu\\我的课题包\\work\\重新整理\\CTD\\1888_Random_Walk\\R随机游走及结果")
+
+getPR_AUC = function(probs, true_Y){
+    probsSort = order(probs) 
+
+    roc_y = true_Y[probsSort];
+    stack_x = cumsum(roc_y == 1)/sum(roc_y == 1)#recall/TPR 
+	stack_y = cumsum(roc_y == 1)/1:length(roc_y)#precision	
+
+    aupr = sum((stack_x[2:length(roc_y)]-stack_x[1:(length(roc_y)-1)])*(stack_y[2:length(roc_y)]+stack_y[1:(length(roc_y)-1)])/2)
+    return(list(stack_x=stack_x, stack_y=stack_y, aupr=aupr))
+}
+
+library(stringr)
+allnode<-read.table("New_Dd_4_modify.txt",header = F, sep = "\t",quote="") # the second input file
+allnode<-unique(allnode)
+alld<-names(table(allnode[,2]))[table(allnode[,2])>1]
+AUPRresult<-c()
+for(j in alld)
+{
+  Eachresult<-c()
+  temp<-c()
+  allseed<-allnode[allnode[,2]==j,1]
+  k=0
+  for(out in allseed)
+  {
+	k=k+1
+    seeds<-allseed[-which(allseed==out)]
+    seeds <- intersect(seeds,rownames(nodes)) # make sure all the seeds are vertexes in the network
+    seedsnames<-seeds
+    seeds <- nodes[seeds,2];seeds <- as.numeric(seeds)
+    
+    
+    # start probilities of vertexes:
+    p0=rep(0,nrow(nodes)); p0[seeds] <- 1/length(seeds) #equal probability of seeds.
+    r=0.7; # which means sum(p_final[seeds] ~= 0.7)
+    p_final <- my_rand_walk(W,p0,r)
+    p_final <- cbind(nodes[,1],p_final)
+    p_final <- cbind(j,p_final)
+    label<-rep(0,length(nodes[,1]))
+    label[nodes[,1]==out]<-1
+    p_final <- cbind(p_final,label)
+    p_final <- p_final[-match(seedsnames,p_final[,2]),]
+    p_final[,3]<-order(order(as.numeric(p_final[,3])))
+	probs = 175-as.numeric(p_final[,3])
+	true_Y = as.numeric(p_final[,4])
+	aList = getPR_AUC(probs, true_Y) 
+	stack_x = unlist(aList$stack_x)
+	stack_y = unlist(aList$stack_y)
+	aupr = unlist(aList$aupr)
+	
+
+	pdf(paste(j,out,k,"PR.pdf",sep="_"))
+	plot(stack_x, stack_y, type = "l", col = "blue", xlab = "True Positive Rate/Recall", ylab = "Precision", main = "PR")
+	dev.off()
+	temp<-c(temp,aupr)
+	temp1<-str_c(temp,collapse=";")
+	Eachresult<-rbind(Eachresult,p_final)
+  }
+	temp2<-str_c(Eachresult[as.numeric(Eachresult[,4])==1,3],collapse=";")
+	
+	probs = 175-as.numeric(Eachresult[,3])
+	true_Y = as.numeric(Eachresult[,4])
+	aList = getPR_AUC(probs, true_Y) 
+	stack_x = unlist(aList$stack_x)
+	stack_y = unlist(aList$stack_y)
+	aupr = unlist(aList$aupr)
+	
+	pdf(paste(j,"PR.pdf",sep="_"))
+	plot(stack_x, stack_y, type = "l", col = "blue", xlab = "True Positive Rate/Recall", ylab = "Precision", main = "PR")
+	dev.off()
+
+    EachAUPR<-c(Eachresult[1,1],aupr,length(allseed),mean(temp),temp1,temp2)
+    AUPRresult<-rbind(AUPRresult,EachAUPR)
+}
+
+colnames(AUPRresult)<-c("Disease","together_AUPR","num_seed","mean_AUPR","scan_AUPR","order_P")
+# write.table(AUPRresult,"AUPRresult_606.txt",sep="\t",row.names=F,quote=F)
+
+
+
+############################
+#five-fold cross-validation, computing AUROC,AUPR,MPR
+setwd("E:\\zhouxu\\我的课题包\\work\\重新整理\\CTD\\1888_Random_Walk\\R随机游走及结果")
+library(ROCR)
+library(stringr)
+allnode<-read.table("New_Dd_4_modify.txt",header = F, sep = "\t",quote="") # the second input file
+allnode<-unique(allnode)
+alld<-names(table(allnode[,2]))[table(allnode[,2])>1]
+alld<-as.data.frame(alld)
+new_DrDi<-merge(alld,allnode,by.x="alld",by.y="V2")
+number<-1:nrow(new_DrDi)
+Sumresult<-c()
+for(i in 1:5)
+{
+	print(i)
+	if(i<5)
+	{
+		numsample<-sample(number,nrow(new_DrDi)/5)
+		number<-number[-numsample]
+		test<-new_DrDi[numsample,]
+		train<-new_DrDi[-numsample,]
+	}else
+	{
+		test<-new_DrDi[number,]
+		train<-new_DrDi[-number,]
+	}
+	Di_inter<-intersect(test[,1],train[,1])
+	length(Di_inter)#
+	for(j in Di_inter)
+	{
+		testnodes<-as.character(test[test[,1]==j,2])
+		trainnodes<-as.character(train[train[,1]==j,2])
+		seeds <- intersect(trainnodes,rownames(nodes)) # make sure all the seeds are vertexes in the network
+		seedsnames<-seeds
+		seeds <- nodes[seeds,2];seeds <- as.numeric(seeds)
+    
+    
+		# start probilities of vertexes:
+		p0=rep(0,nrow(nodes)); p0[seeds] <- 1/length(seeds) #equal probability of seeds.
+		r=0.7; # which means sum(p_final[seeds] ~= 0.7)
+		p_final <- my_rand_walk(W,p0,r)
+		p_final <- cbind(nodes[,1],p_final)
+		p_final <- cbind(j,p_final)
+		label<-rep(0,length(nodes[,1]))
+		for(m in 1:length(testnodes))
+		{
+			label[nodes[,1]==testnodes[m]]<-1
+		}		
+		p_final <- cbind(p_final,label)
+		p_final <- p_final[-match(seedsnames,p_final[,2]),]#filter out seed nodes
+		p_final[,3]<-order(order(as.numeric(p_final[,3])))#
+		#AUC
+		pred<-prediction(as.numeric(p_final[,3]),as.numeric(p_final[,4]))
+		perf<-performance(pred,"tpr","fpr")
+		aucPerf<-performance(pred,"auc")
+		AUCValue<-aucPerf@y.values[[1]]
+		#MPR
+		setrank<-nrow(p_final)-as.numeric(p_final[as.numeric(p_final[,4])==1,3])+1
+		MPR<-mean(setrank)/nrow(p_final)
+		
+		#AUPR
+		true_Y = as.numeric(p_final[,4])
+		probs = 175-as.numeric(p_final[,3])
+
+		getPR_AUC = function(probs, true_Y){
+		probsSort = order(probs) 
+		roc_y = true_Y[probsSort];
+		stack_x = cumsum(roc_y == 1)/sum(roc_y == 1)#recall/TPR 
+		stack_y = cumsum(roc_y == 1)/1:length(roc_y)#precision
+		aupr = sum((stack_x[2:length(roc_y)]-stack_x[1:(length(roc_y)-1)])*(stack_y[2:length(roc_y)]+stack_y[1:(length(roc_y)-1)])/2)
+		return(list(stack_x=stack_x, stack_y=stack_y, aupr=aupr))
+		}
+		aList = getPR_AUC(probs, true_Y) 
+		stack_x = unlist(aList$stack_x)
+		stack_y = unlist(aList$stack_y)
+		aupr = unlist(aList$aupr)
+		
+		temp<-c(length(Di_inter),j,AUCValue,length(testnodes),length(trainnodes),MPR,str_c(setrank,collapse=";"),nrow(p_final),aupr)
+		Sumresult<-rbind(Sumresult,temp)
+	}
+}
+colnames(Sumresult)<-c("num_inter_Di","Di","AUC","num_test","num_train","MPR","setrank","num_pre","AUPR")
+# write.table(Sumresult,"Five_CV_result.txt",row.names=F,sep="\t",quote=F)
+length(unique(Sumresult[,2]))# 574
+mean(as.numeric(Sumresult[,3]))# 0.618 average_AUC
+mean(as.numeric(Sumresult[,6]))# 0.386 average_MPR
+mean(as.numeric(Sumresult[,9]))# 0.03 average_AUPR
+
+
+######################
+# External dataset MPR
+data_EX<-read.table("New_Only_CheMBL_DD.txt",quote="",sep="\t",header=T)
+di_EX<-unique(data_EX[,2])
+length(di_EX)
+result<-c()
+for(i in di_EX)
+{
+	rankset<-data_EX[data_EX[,2]==i,5]
+	MPR<-mean(rankset)/175
+	temp<-c(i,MPR,length(rankset))
+	result<-rbind(result,temp)
+}
+mean(as.numeric(result[,2]))#0.32
+#write.table(result,"MPR_External_108.txt",quote=F,row.names=F,col.names=F,sep="\t")
+
+
+
+
+
+
+
+
+
+
